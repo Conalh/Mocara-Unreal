@@ -1,0 +1,26 @@
+[project]
+name = "mocara-sidecar"
+version = "0.2.0"
+description = "Warm Kimodo HTTP sidecar for the Mocara Unreal plugin"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "pydantic>=2",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+  "tomli>=2; python_version < '3.11'",
+]
+
+[project.scripts]
+mocara_sidecar = "mocara_sidecar.server:app"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mocara_sidecar*"]
