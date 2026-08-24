@@ -15,6 +15,7 @@ Saved/
 .pytest_cache/
 .venv/
 __pycache__/
+*.egg-info/
 *.py[cod]
 
 # Local credentials and generated model artifacts

@@ -46,6 +46,8 @@ def test_common_model_weight_formats_are_ignored() -> None:
     for suffix in (".bin", ".ckpt", ".gguf", ".onnx", ".pt", ".pth", ".safetensors"):
         assert f"*{suffix}" in ignore_rules
 
+    assert "*.egg-info/" in ignore_rules
+
 
 def test_soma_reference_pose_matches_the_attributed_kimodo_resource() -> None:
     resource = REPO_ROOT / "Resources" / "somaskel77_standard_tpose.bvh"
