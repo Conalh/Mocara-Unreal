@@ -27,13 +27,17 @@ def test_repository_root_is_the_installable_plugin() -> None:
     assert not (REPO_ROOT / "Unreal" / "Plugins" / "Mocara").exists()
 
 
-def test_pytest_is_a_declared_sidecar_test_dependency() -> None:
+def test_sidecar_test_client_dependencies_are_declared() -> None:
     pyproject = tomllib.loads(
         (PLUGIN_SIDECAR / "pyproject.toml").read_text(encoding="utf-8")
     )
 
     test_dependencies = pyproject["project"]["optional-dependencies"]["test"]
-    assert any(dependency.split(">=", maxsplit=1)[0] == "pytest" for dependency in test_dependencies)
+    dependency_names = {
+        re.split(r"[<>=; ]", dependency, maxsplit=1)[0]
+        for dependency in test_dependencies
+    }
+    assert {"httpx", "httpx2", "pytest"} <= dependency_names
 
 
 @pytest.mark.parametrize("script", SETUP_SCRIPTS, ids=lambda path: str(path.relative_to(REPO_ROOT)))
