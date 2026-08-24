@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible Mocara defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: For security vulnerabilities, stop here and use Security -> Report a vulnerability.
+  - type: input
+    id: version
+    attributes:
+      label: Mocara version or commit
+      placeholder: 0.2.0 or a commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Windows version, Unreal 5.8 build, WSL distro, GPU, driver
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Use the smallest project and prompt that reproduce the issue. Remove tokens and proprietary content.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and relevant logs
+      description: Redact credentials, local private paths, model cache paths, and project content.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran Mocara.Doctor and included the relevant result.
+          required: true
+        - label: I removed tokens and private or licensed project content.
+          required: true

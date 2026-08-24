@@ -1,0 +1,9 @@
+Mocara
+Copyright 2026 Blind Meridian
+
+This product includes a SOMA skeleton reference pose derived from the Kimodo
+project. See THIRD_PARTY_NOTICES.md for its source, pinned revision, hash, and
+license.
+
+Kimodo, its model checkpoints, Meta Llama, LLM2Vec model files, Unreal Engine,
+and Epic sample content are not distributed as part of this repository.

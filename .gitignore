@@ -1,0 +1,28 @@
+# Unreal build products
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# IDE and local build state
+.vs/
+.vscode/
+*.sln
+*.suo
+*.user
+
+# Python environments and caches
+.pytest_cache/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local credentials and generated model artifacts
+.env
+.env.*
+!.env.example
+*.ckpt
+*.onnx
+*.pt
+*.pth
+*.safetensors
