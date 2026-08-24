@@ -1,6 +1,7 @@
 from pathlib import Path
 import hashlib
 import json
+import re
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -100,3 +101,13 @@ def test_content_dependent_unreal_tests_are_clean_host_safe() -> None:
         contents = (test_root / filename).read_text(encoding="utf-8")
         assert "AddWarning" in contents
         assert guard_message in contents
+
+
+def test_github_actions_are_pinned_to_immutable_commits() -> None:
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    action_revisions = re.findall(r"^\s*- uses: [^@\s]+@([^\s#]+)", workflow, re.MULTILINE)
+
+    assert action_revisions
+    assert all(re.fullmatch(r"[0-9a-f]{40}", revision) for revision in action_revisions)
