@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "MocaraRetargeter.h"
 #include "MocaraTargetProfile.h"
+#include "Engine/SkeletalMesh.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMocaraMetaHumanTargetSelectionTest,
@@ -13,20 +14,27 @@ bool FMocaraMetaHumanTargetSelectionTest::RunTest(const FString& Parameters)
 {
 	const FSoftObjectPath BodyPath(
 		TEXT("/MetaHumanCharacter/Body/IdentityTemplate/SKM_Body.SKM_Body"));
-	FMocaraTargetProfile Profile;
-	FString Error;
-	USkeletalMesh* BodyMesh = FMocaraRetargeter::ResolveTargetMesh(BodyPath, Profile, Error);
-	TestNotNull(TEXT("An explicitly selected MetaHuman body mesh resolves"), BodyMesh);
-	TestTrue(TEXT("A valid target does not report an error"), Error.IsEmpty());
-	TestEqual(TEXT("Selection carries the MetaHuman-specific target profile"),
-		Profile.ProfileName, FName(TEXT("MetaHumanBody")));
+	if (Cast<USkeletalMesh>(BodyPath.TryLoad()))
+	{
+		FMocaraTargetProfile Profile;
+		FString Error;
+		USkeletalMesh* BodyMesh = FMocaraRetargeter::ResolveTargetMesh(BodyPath, Profile, Error);
+		TestNotNull(TEXT("An explicitly selected MetaHuman body mesh resolves"), BodyMesh);
+		TestTrue(TEXT("A valid target does not report an error"), Error.IsEmpty());
+		TestEqual(TEXT("Selection carries the MetaHuman-specific target profile"),
+			Profile.ProfileName, FName(TEXT("MetaHumanBody")));
 
-	const FName FirstAssetId = FMocaraRetargeter::MakeTargetAssetId(BodyMesh, Profile);
-	const FName SecondAssetId = FMocaraRetargeter::MakeTargetAssetId(BodyMesh, Profile);
-	TestTrue(TEXT("Generated retarget assets identify their MetaHuman target"),
-		FirstAssetId.ToString().StartsWith(TEXT("MetaHumanBody_SKM_Body_")));
-	TestEqual(TEXT("The same target path produces a stable retarget asset identifier"),
-		FirstAssetId, SecondAssetId);
+		const FName FirstAssetId = FMocaraRetargeter::MakeTargetAssetId(BodyMesh, Profile);
+		const FName SecondAssetId = FMocaraRetargeter::MakeTargetAssetId(BodyMesh, Profile);
+		TestTrue(TEXT("Generated retarget assets identify their MetaHuman target"),
+			FirstAssetId.ToString().StartsWith(TEXT("MetaHumanBody_SKM_Body_")));
+		TestEqual(TEXT("The same target path produces a stable retarget asset identifier"),
+			FirstAssetId, SecondAssetId);
+	}
+	else
+	{
+		AddWarning(TEXT("MetaHuman Character plugin content is not installed; skipping explicit MetaHuman target assertions."));
+	}
 
 	FMocaraTargetProfile MissingProfile;
 	FString MissingError;

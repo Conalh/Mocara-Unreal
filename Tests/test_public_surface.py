@@ -77,3 +77,17 @@ def test_public_text_has_no_private_checkout_path_or_embedded_engine_token() -> 
             forbidden.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert sorted(forbidden) == []
+
+
+def test_content_dependent_unreal_tests_are_clean_host_safe() -> None:
+    expected_guards = {
+        "MocaraTargetProfileTests.cpp": "skipping mesh-specific assertions",
+        "MocaraRetargetTargetTests.cpp": "skipping explicit MetaHuman target assertions",
+        "MocaraPreviewCharacterTests.cpp": "skipping assembled-character assertions",
+    }
+    test_root = REPO_ROOT / "Source" / "MocaraEditor" / "Private" / "Tests"
+
+    for filename, guard_message in expected_guards.items():
+        contents = (test_root / filename).read_text(encoding="utf-8")
+        assert "AddWarning" in contents
+        assert guard_message in contents
