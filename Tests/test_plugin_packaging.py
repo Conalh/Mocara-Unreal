@@ -25,6 +25,7 @@ def test_package_filter_includes_the_complete_local_runtime() -> None:
     assert "/THIRD_PARTY_NOTICES.md" in contents
     assert "-/Sidecar/.../__pycache__/..." in contents
     assert "-/Sidecar/.../*.pyc" in contents
+    assert "-/Sidecar/.../*.egg-info/..." in contents
 
 
 def test_runtime_scripts_have_no_checkout_specific_default() -> None:
