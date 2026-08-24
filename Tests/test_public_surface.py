@@ -30,7 +30,7 @@ def test_public_repository_contains_only_the_plugin_not_a_host_project() -> None
 
 
 def test_no_model_weights_are_bundled() -> None:
-    weight_suffixes = {".bin", ".ckpt", ".onnx", ".pt", ".pth", ".safetensors"}
+    weight_suffixes = {".bin", ".ckpt", ".gguf", ".onnx", ".pt", ".pth", ".safetensors"}
     bundled = sorted(
         path.relative_to(REPO_ROOT).as_posix()
         for path in REPO_ROOT.rglob("*")
@@ -38,6 +38,13 @@ def test_no_model_weights_are_bundled() -> None:
     )
 
     assert bundled == []
+
+
+def test_common_model_weight_formats_are_ignored() -> None:
+    ignore_rules = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+    for suffix in (".bin", ".ckpt", ".gguf", ".onnx", ".pt", ".pth", ".safetensors"):
+        assert f"*{suffix}" in ignore_rules
 
 
 def test_soma_reference_pose_matches_the_attributed_kimodo_resource() -> None:

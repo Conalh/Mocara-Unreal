@@ -21,7 +21,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.bin
 *.ckpt
+*.gguf
 *.onnx
 *.pt
 *.pth

@@ -20,6 +20,9 @@ def test_package_filter_includes_the_complete_local_runtime() -> None:
     assert "/Scripts/..." in contents
     assert "/Sidecar/..." in contents
     assert "/Resources/..." in contents
+    assert "/LICENSE" in contents
+    assert "/NOTICE" in contents
+    assert "/THIRD_PARTY_NOTICES.md" in contents
     assert "-/Sidecar/.../__pycache__/..." in contents
     assert "-/Sidecar/.../*.pyc" in contents
 
