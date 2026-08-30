@@ -30,6 +30,7 @@
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Layout/SBorder.h"
@@ -375,18 +376,57 @@ void SMocaraWindow::Construct(const FArguments& InArgs)
 			SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot().FillWidth(1)
 			[
-				SAssignNew(PromptBox, SEditableTextBox).Text(FText::FromString(Request.Prompt))
+				SAssignNew(PromptBox, SEditableTextBox)
+				.Text(FText::FromString(Request.Prompt))
+				.OnTextChanged_Lambda([this](const FText& Text)
+				{
+					Request.Prompt = Text.ToString();
+					if (Request.PromptSegments.Num() > 1)
+					{
+						Request.PromptSegments[0].Prompt = Request.Prompt;
+					}
+				})
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0, 0, 0).VAlign(VAlign_Center)
 			[
 				SNew(SSpinBox<float>)
-				.Value_Lambda([this] { return Request.DurationSeconds; })
-				.OnValueChanged_Lambda([this](float V) { Request.DurationSeconds = V; TimelineFrames = FMath::Max(1, FMath::RoundToInt(V * TimelineFps)); })
-				.MinValue(0.5f).MaxValue(30.f)
+					.Value_Lambda([this]
+					{
+						return Request.PromptSegments.Num() > 1
+							? Request.PromptSegments[0].DurationSeconds
+							: Request.DurationSeconds;
+					})
+					.OnValueChanged_Lambda([this](float V)
+					{
+						if (Request.PromptSegments.Num() > 1)
+						{
+							const float OtherDuration = PromptTimelineDuration()
+								- Request.PromptSegments[0].DurationSeconds;
+							Request.PromptSegments[0].DurationSeconds = FMath::Clamp(
+								V, 0.5f, FMath::Max(0.5f, 30.f - OtherDuration));
+						}
+						else
+						{
+							Request.DurationSeconds = FMath::Clamp(V, 0.5f, 30.f);
+						}
+						UpdatePromptTimelineFrames();
+					})
+					.MinValue(0.5f).MaxValue(30.f)
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(6, 0, 0, 0).VAlign(VAlign_Center)
 			[
 				SNew(STextBlock).Text(LOCTEXT("Seconds", "sec"))
+			]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0, 0, 0)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("AddPromptSegment", "+ Segment"))
+				.ToolTipText(LOCTEXT("AddPromptSegmentTip", "Add another timed prompt to the generated motion sequence."))
+				.IsEnabled_Lambda([this]
+				{
+					return Request.PromptSegments.Num() < 16 && PromptTimelineDuration() <= 29.5f;
+				})
+				.OnClicked(this, &SMocaraWindow::OnAddPromptSegment)
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(12, 0, 0, 0)
 			[
@@ -397,6 +437,10 @@ void SMocaraWindow::Construct(const FArguments& InArgs)
 					SNew(STextBlock).Text(LOCTEXT("InPlace", "In-place"))
 				]
 			]
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(8, 0, 8, 4)
+		[
+			SAssignNew(PromptSegmentsBox, SVerticalBox)
 		]
 		+ SVerticalBox::Slot().AutoHeight().Padding(8, 0, 8, 4)
 		[
@@ -509,14 +553,74 @@ void SMocaraWindow::Construct(const FArguments& InArgs)
 					const FString SeedText = ActiveJob.bHasSeed
 						? FString::Printf(TEXT("seed %d"), ActiveJob.Seed)
 						: TEXT("unseeded");
+					const FString IntegrityText = ActiveJob.ModelBundleSha256.IsEmpty()
+						? TEXT("unverified model")
+						: FString::Printf(TEXT("verified %s"), *ActiveJob.ModelBundleSha256.Left(8));
+					const FString SegmentText = ActiveJob.PromptSegments.Num() > 1
+						? FString::Printf(TEXT("%d segments"), ActiveJob.PromptSegments.Num())
+						: TEXT("single prompt");
 					return FText::FromString(FString::Printf(
-						TEXT("%s | %d candidates | text %.1f | constraint %.1f | %s"),
+						TEXT("%s | %s | %d candidates | text %.1f | constraint %.1f | %s | %s"),
 						*SeedText,
+						*SegmentText,
 						ActiveJob.CandidateCount,
 						ActiveJob.TextGuidance,
 						ActiveJob.ConstraintGuidance,
-						ActiveJob.TextEncoderPrecision.IsEmpty() ? TEXT("precision unknown") : *ActiveJob.TextEncoderPrecision));
+						ActiveJob.TextEncoderPrecision.IsEmpty() ? TEXT("precision unknown") : *ActiveJob.TextEncoderPrecision,
+						*IntegrityText));
 				})
+			]
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(8, 0, 8, 4)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 6, 0)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("RefreshHistory", "Refresh History"))
+				.ToolTipText(LOCTEXT("RefreshHistoryTip", "List recent verified generation records saved by this Mocara sidecar."))
+				.IsEnabled_Lambda([this] { return !bHistoryQueryInFlight && !bSubmitInFlight; })
+				.OnClicked(this, &SMocaraWindow::OnRefreshHistory)
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.f).Padding(0, 0, 6, 0)
+			[
+				SAssignNew(HistoryCombo, SComboBox<TSharedPtr<FMocaraJobState>>)
+				.OptionsSource(&HistoryItems)
+				.OnGenerateWidget_Lambda([](TSharedPtr<FMocaraJobState> Item)
+				{
+					const FString Label = Item.IsValid()
+						? FString::Printf(TEXT("%s  %s"), *Item->CreatedAt.Left(16), *Item->Prompt.Left(72))
+						: TEXT("Invalid history entry");
+					return SNew(STextBlock).Text(FText::FromString(Label));
+				})
+				.OnSelectionChanged_Lambda([this](TSharedPtr<FMocaraJobState> Item, ESelectInfo::Type)
+				{
+					SelectedHistoryItem = Item;
+				})
+				[
+					SNew(STextBlock).Text_Lambda([this]
+					{
+						if (!SelectedHistoryItem.IsValid())
+						{
+							return LOCTEXT("HistoryEmpty", "No saved generation selected");
+						}
+						return FText::FromString(FString::Printf(
+							TEXT("%s  %s"),
+							*SelectedHistoryItem->CreatedAt.Left(16),
+							*SelectedHistoryItem->Prompt.Left(72)));
+					})
+				]
+			]
+			+ SHorizontalBox::Slot().AutoWidth()
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("LoadHistory", "Load Saved"))
+				.ToolTipText(LOCTEXT("LoadHistoryTip", "Import the selected saved result without running generation again."))
+				.IsEnabled_Lambda([this]
+				{
+					return SelectedHistoryItem.IsValid() && !bPolling && !bSubmitInFlight && !bImportPending;
+				})
+				.OnClicked(this, &SMocaraWindow::OnLoadHistory)
 			]
 		]
 		+ SVerticalBox::Slot().FillHeight(1).Padding(8, 0, 8, 4)
@@ -915,6 +1019,202 @@ void SMocaraWindow::Construct(const FArguments& InArgs)
 			]
 		]
 	];
+	RebuildPromptSegmentRows();
+}
+
+float SMocaraWindow::PromptTimelineDuration() const
+{
+	if (Request.PromptSegments.Num() <= 1)
+	{
+		return Request.DurationSeconds;
+	}
+	float Total = 0.f;
+	for (const FMocaraPromptSegment& Segment : Request.PromptSegments)
+	{
+		Total += Segment.DurationSeconds;
+	}
+	return Total;
+}
+
+void SMocaraWindow::UpdatePromptTimelineFrames()
+{
+	Request.DurationSeconds = FMath::Clamp(PromptTimelineDuration(), 0.5f, 30.f);
+	TimelineFrames = FMath::Max(1, FMath::RoundToInt(Request.DurationSeconds * TimelineFps));
+}
+
+FReply SMocaraWindow::OnAddPromptSegment()
+{
+	if (PromptBox.IsValid())
+	{
+		Request.Prompt = PromptBox->GetText().ToString();
+	}
+	if (Request.PromptSegments.Num() <= 1)
+	{
+		Request.PromptSegments.Reset();
+		Request.PromptSegments.Emplace(Request.Prompt, Request.DurationSeconds);
+	}
+	if (Request.PromptSegments.Num() >= 16)
+	{
+		SetStatus(TEXT("A prompt sequence can contain at most 16 segments."));
+		return FReply::Handled();
+	}
+	const float Remaining = 30.f - PromptTimelineDuration();
+	if (Remaining < 0.5f)
+	{
+		SetStatus(TEXT("Prompt sequences are limited to 30 seconds total."));
+		return FReply::Handled();
+	}
+	Request.PromptSegments.Emplace(
+		TEXT("Then the person continues naturally."),
+		FMath::Min(1.5f, Remaining));
+	UpdatePromptTimelineFrames();
+	RebuildPromptSegmentRows();
+	return FReply::Handled();
+}
+
+FReply SMocaraWindow::OnUseSinglePrompt()
+{
+	if (!Request.PromptSegments.IsEmpty())
+	{
+		Request.Prompt = Request.PromptSegments[0].Prompt;
+		Request.DurationSeconds = Request.PromptSegments[0].DurationSeconds;
+	}
+	Request.PromptSegments.Reset();
+	if (PromptBox.IsValid())
+	{
+		PromptBox->SetText(FText::FromString(Request.Prompt));
+	}
+	UpdatePromptTimelineFrames();
+	RebuildPromptSegmentRows();
+	return FReply::Handled();
+}
+
+FReply SMocaraWindow::OnRemovePromptSegment(int32 SegmentIndex)
+{
+	if (!Request.PromptSegments.IsValidIndex(SegmentIndex))
+	{
+		return FReply::Handled();
+	}
+	Request.PromptSegments.RemoveAt(SegmentIndex);
+	if (Request.PromptSegments.Num() <= 1)
+	{
+		return OnUseSinglePrompt();
+	}
+	UpdatePromptTimelineFrames();
+	RebuildPromptSegmentRows();
+	return FReply::Handled();
+}
+
+void SMocaraWindow::RebuildPromptSegmentRows()
+{
+	if (!PromptSegmentsBox.IsValid())
+	{
+		return;
+	}
+	PromptSegmentsBox->ClearChildren();
+	if (Request.PromptSegments.Num() <= 1)
+	{
+		return;
+	}
+	PromptSegmentsBox->AddSlot().AutoHeight().Padding(0, 0, 0, 3)
+	[
+		SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+		[
+			SNew(STextBlock)
+			.Text_Lambda([this]
+			{
+				return FText::FromString(FString::Printf(
+					TEXT("Sequence: %d segments | %.1f sec total"),
+					Request.PromptSegments.Num(), PromptTimelineDuration()));
+			})
+			.ColorAndOpacity(FSlateColor(FLinearColor(0.65f, 0.75f, 0.85f)))
+		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8, 0, 4, 0)
+		[
+			SNew(STextBlock).Text(LOCTEXT("TransitionFrames", "Blend frames"))
+		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 8, 0)
+		[
+			SNew(SSpinBox<int32>)
+			.MinDesiredWidth(45.f)
+			.MinValue(1).MaxValue(15)
+			.Value_Lambda([this] { return Request.TransitionFrames; })
+			.OnValueChanged_Lambda([this](int32 Value)
+			{
+				Request.TransitionFrames = FMath::Clamp(Value, 1, 15);
+			})
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton)
+			.Text(LOCTEXT("UseSinglePrompt", "Single prompt"))
+			.ToolTipText(LOCTEXT("UseSinglePromptTip", "Keep segment 1 and remove the rest of this prompt sequence."))
+			.OnClicked(this, &SMocaraWindow::OnUseSinglePrompt)
+		]
+	];
+
+	for (int32 Index = 1; Index < Request.PromptSegments.Num(); ++Index)
+	{
+		PromptSegmentsBox->AddSlot().AutoHeight().Padding(0, 1)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+			[
+				SNew(STextBlock).Text(FText::FromString(FString::Printf(TEXT("%d"), Index + 1)))
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.f)
+			[
+				SNew(SEditableTextBox)
+				.Text_Lambda([this, Index]
+				{
+					return Request.PromptSegments.IsValidIndex(Index)
+						? FText::FromString(Request.PromptSegments[Index].Prompt)
+						: FText::GetEmpty();
+				})
+				.OnTextChanged_Lambda([this, Index](const FText& Text)
+				{
+					if (Request.PromptSegments.IsValidIndex(Index))
+					{
+						Request.PromptSegments[Index].Prompt = Text.ToString();
+					}
+				})
+			]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8, 0, 4, 0)
+			[
+				SNew(SSpinBox<float>)
+				.MinDesiredWidth(62.f)
+				.MinValue(0.5f).MaxValue(30.f)
+				.Value_Lambda([this, Index]
+				{
+					return Request.PromptSegments.IsValidIndex(Index)
+						? Request.PromptSegments[Index].DurationSeconds : 0.5f;
+				})
+				.OnValueChanged_Lambda([this, Index](float Value)
+				{
+					if (!Request.PromptSegments.IsValidIndex(Index))
+					{
+						return;
+					}
+					const float OtherDuration = PromptTimelineDuration()
+						- Request.PromptSegments[Index].DurationSeconds;
+					Request.PromptSegments[Index].DurationSeconds = FMath::Clamp(
+						Value, 0.5f, FMath::Max(0.5f, 30.f - OtherDuration));
+					UpdatePromptTimelineFrames();
+				})
+			]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+			[
+				SNew(STextBlock).Text(LOCTEXT("SegmentSeconds", "sec"))
+			]
+			+ SHorizontalBox::Slot().AutoWidth()
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("RemovePromptSegment", "Remove"))
+				.OnClicked_Lambda([this, Index] { return OnRemovePromptSegment(Index); })
+			]
+		];
+	}
 }
 
 TSharedRef<SWidget> SMocaraWindow::MakeBoneButton(FName Bone)
@@ -1472,6 +1772,11 @@ FReply SMocaraWindow::OnGenerate()
 	{
 		Request.Prompt = PromptBox->GetText().ToString();
 	}
+	if (Request.PromptSegments.Num() > 1)
+	{
+		Request.PromptSegments[0].Prompt = Request.Prompt;
+		UpdatePromptTimelineFrames();
+	}
 	Request.ConstraintPreset.Reset();
 	bHasPendingConstraints = false;
 	PendingConstraints.Reset();
@@ -1490,6 +1795,24 @@ FReply SMocaraWindow::OnGenerate()
 
 FReply SMocaraWindow::SubmitGenerate(const TArray<TSharedPtr<FJsonValue>>* Constraints)
 {
+	if (Request.Prompt.TrimStartAndEnd().IsEmpty())
+	{
+		SetStatus(TEXT("Enter a prompt before generating."));
+		return FReply::Handled();
+	}
+	if (Request.PromptSegments.Num() > 1)
+	{
+		Request.PromptSegments[0].Prompt = Request.Prompt;
+		for (const FMocaraPromptSegment& Segment : Request.PromptSegments)
+		{
+			if (Segment.Prompt.TrimStartAndEnd().IsEmpty())
+			{
+				SetStatus(TEXT("Every prompt segment needs a motion description."));
+				return FReply::Handled();
+			}
+		}
+		UpdatePromptTimelineFrames();
+	}
 	FMocaraSidecarLauncher::Get().EnsureStarted();
 	if (!FMocaraSidecarLauncher::Get().IsReady())
 	{
@@ -1612,6 +1935,89 @@ FReply SMocaraWindow::OnLoadCandidate()
 		SetStatus(TEXT("That candidate is not available for the current job."));
 		return FReply::Handled();
 	}
+	ImportAndRetarget(SelectCandidate(ActiveJob, SelectedCandidateIndex));
+	return FReply::Handled();
+}
+
+FReply SMocaraWindow::OnRefreshHistory()
+{
+	if (bHistoryQueryInFlight)
+	{
+		return FReply::Handled();
+	}
+	bHistoryQueryInFlight = true;
+	FMocaraSidecarLauncher::Get().EnsureStarted();
+	SetStatus(TEXT("Refreshing saved generation history..."));
+	TWeakPtr<SMocaraWindow> WeakSelf = SharedThis(this);
+	Client.QueryHistoryAsync(20,
+		[WeakSelf](bool bOk, const TArray<FMocaraJobState>& Jobs, const FString& Error)
+		{
+			if (const TSharedPtr<SMocaraWindow> Self = WeakSelf.Pin())
+			{
+				Self->HandleHistory(bOk, Jobs, Error);
+			}
+		});
+	return FReply::Handled();
+}
+
+void SMocaraWindow::HandleHistory(
+	bool bOk,
+	const TArray<FMocaraJobState>& Jobs,
+	const FString& Error)
+{
+	bHistoryQueryInFlight = false;
+	if (!bOk)
+	{
+		SetStatus(Error);
+		return;
+	}
+	HistoryItems.Reset();
+	for (const FMocaraJobState& Job : Jobs)
+	{
+		HistoryItems.Add(MakeShared<FMocaraJobState>(Job));
+	}
+	SelectedHistoryItem = HistoryItems.IsEmpty() ? nullptr : HistoryItems[0];
+	if (HistoryCombo.IsValid())
+	{
+		HistoryCombo->RefreshOptions();
+		HistoryCombo->SetSelectedItem(SelectedHistoryItem);
+	}
+	SetStatus(FString::Printf(TEXT("Loaded %d saved generation%s."),
+		HistoryItems.Num(), HistoryItems.Num() == 1 ? TEXT("") : TEXT("s")));
+}
+
+FReply SMocaraWindow::OnLoadHistory()
+{
+	if (!SelectedHistoryItem.IsValid() || SelectedHistoryItem->Artifacts.IsEmpty())
+	{
+		SetStatus(TEXT("Select a saved generation with an available artifact."));
+		return FReply::Handled();
+	}
+	ActiveJob = *SelectedHistoryItem;
+	Request.Prompt = ActiveJob.Prompt;
+	Request.DurationSeconds = FMath::Clamp(ActiveJob.DurationSeconds, 0.5f, 30.f);
+	Request.Seed = ActiveJob.Seed;
+	Request.bUseSeed = ActiveJob.bHasSeed;
+	Request.TextGuidance = ActiveJob.TextGuidance;
+	Request.ConstraintGuidance = ActiveJob.ConstraintGuidance;
+	Request.CandidateCount = FMath::Clamp(ActiveJob.CandidateCount, 1, 4);
+	Request.ConstraintPreset = ActiveJob.ConstraintPreset;
+	Request.PromptSegments = ActiveJob.PromptSegments;
+	Request.TransitionFrames = ActiveJob.TransitionFrames;
+	if (PromptBox.IsValid())
+	{
+		PromptBox->SetText(FText::FromString(Request.Prompt));
+	}
+	TimelineFps = ActiveJob.Fps > 0.f ? ActiveJob.Fps : 30.f;
+	TimelineFrames = FMath::Max(1, ActiveJob.NumFrames);
+	RebuildPromptSegmentRows();
+	SelectedCandidateIndex = 0;
+	PoseEditState->Modify();
+	GetPoseKeys().Reset();
+	SelectedKeyIndex = INDEX_NONE;
+	bPlaying = false;
+	CurrentFrame = 0;
+	RefreshSelectionFromKeys();
 	ImportAndRetarget(SelectCandidate(ActiveJob, SelectedCandidateIndex));
 	return FReply::Handled();
 }

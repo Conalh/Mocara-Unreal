@@ -11,7 +11,9 @@ public class MocaraEditor : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"HTTP",
 			"InputCore",
+			"Json",
 			"Slate",
 			"SlateCore"
 		});
@@ -24,8 +26,6 @@ public class MocaraEditor : ModuleRules
 			"EditorWidgets",
 			"ToolMenus",
 			"WorkspaceMenuStructure",
-			"HTTP",
-			"Json",
 			"JsonUtilities",
 			"AssetRegistry",
 			"AssetTools",

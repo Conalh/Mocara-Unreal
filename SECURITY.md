@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Mocara is beta software. Security fixes currently target the latest `0.2.x` source on the default branch.
+Mocara is beta software. Security fixes currently target the latest `0.3.x` source on the default branch.
 
 ## Report a vulnerability
 
@@ -18,6 +18,8 @@ Include the affected commit, environment, reproduction steps, expected impact, a
 - Prompt text, JSON requests, BVH files, filesystem paths, and model outputs are untrusted at their boundaries and must remain bounded and validated.
 - Sidecar shutdown validates both a PID and an ownership token before signalling a process.
 - Hugging Face tokens and downloaded model files belong in the user's environment or cache, never in this repository or logs.
-- WSL setup downloads executable Python dependencies and Kimodo source. Pins should move only through reviewed changes with license and supply-chain checks.
+- The packaged model manifest pins source and model revisions plus runtime file sizes and SHA-256 hashes. Pins should move only through reviewed changes with license and supply-chain checks.
+- Persistent history admits only bounded provenance records and exact, non-symlink artifacts inside the configured output directory.
+- Native backend probes and evidence reports must not disclose checkout, executable, model, or cache paths. The experiment cannot be selected for generation without a reviewed promotion change.
 
 The service is designed for a single user on one workstation. Multi-user hosts, remote services, and packaged-game networking require a different authentication and isolation design.

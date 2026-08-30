@@ -221,8 +221,32 @@ TSharedRef<FJsonObject> FMocaraKimodoClient::BuildGeneratePayload(
 	const TArray<TSharedPtr<FJsonValue>>* Constraints)
 {
 	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
-	Payload->SetStringField(TEXT("prompt"), RequestData.Prompt);
-	Payload->SetNumberField(TEXT("duration"), FMath::Clamp(RequestData.DurationSeconds, 0.5f, 30.f));
+	const bool bHasTimeline = RequestData.PromptSegments.Num() > 1;
+	const FString PrimaryPrompt = bHasTimeline
+		? RequestData.PromptSegments[0].Prompt
+		: RequestData.Prompt;
+	float TotalDuration = RequestData.DurationSeconds;
+	if (bHasTimeline)
+	{
+		TotalDuration = 0.f;
+		TArray<TSharedPtr<FJsonValue>> SegmentValues;
+		const int32 SegmentCount = FMath::Min(RequestData.PromptSegments.Num(), 16);
+		SegmentValues.Reserve(SegmentCount);
+		for (int32 Index = 0; Index < SegmentCount; ++Index)
+		{
+			const FMocaraPromptSegment& Segment = RequestData.PromptSegments[Index];
+			const float SegmentDuration = FMath::Clamp(Segment.DurationSeconds, 0.5f, 30.f);
+			TotalDuration += SegmentDuration;
+			TSharedRef<FJsonObject> SegmentJson = MakeShared<FJsonObject>();
+			SegmentJson->SetStringField(TEXT("prompt"), Segment.Prompt);
+			SegmentJson->SetNumberField(TEXT("duration"), SegmentDuration);
+			SegmentValues.Add(MakeShared<FJsonValueObject>(SegmentJson));
+		}
+		Payload->SetArrayField(TEXT("segments"), MoveTemp(SegmentValues));
+		Payload->SetNumberField(TEXT("transition_frames"), FMath::Clamp(RequestData.TransitionFrames, 1, 15));
+	}
+	Payload->SetStringField(TEXT("prompt"), PrimaryPrompt);
+	Payload->SetNumberField(TEXT("duration"), FMath::Clamp(TotalDuration, 0.5f, 30.f));
 	Payload->SetNumberField(TEXT("diffusion_steps"), FMath::Clamp(RequestData.DiffusionSteps, 1, 500));
 	Payload->SetNumberField(TEXT("text_guidance"), FMath::Clamp(RequestData.TextGuidance, 0.f, 10.f));
 	Payload->SetNumberField(TEXT("constraint_guidance"), FMath::Clamp(RequestData.ConstraintGuidance, 0.f, 10.f));
@@ -290,6 +314,7 @@ bool FMocaraKimodoClient::ParseJobState(
 	{
 		Json->TryGetStringField(TEXT("provenance_path"), OutState.ProvenancePath);
 	}
+	Json->TryGetStringField(TEXT("created_at"), OutState.CreatedAt);
 
 	const TArray<TSharedPtr<FJsonValue>>* ArtifactValues = nullptr;
 	if (Json->TryGetArrayField(TEXT("artifacts"), ArtifactValues) && ArtifactValues)
@@ -342,6 +367,44 @@ bool FMocaraKimodoClient::ParseJobState(
 		(*Provenance)->TryGetStringField(TEXT("model"), OutState.Model);
 		(*Provenance)->TryGetStringField(TEXT("constraint_preset"), OutState.ConstraintPreset);
 		(*Provenance)->TryGetStringField(TEXT("text_encoder_precision"), OutState.TextEncoderPrecision);
+		(*Provenance)->TryGetStringField(TEXT("backend"), OutState.Backend);
+		if ((*Provenance)->HasTypedField<EJson::Number>(TEXT("duration")))
+		{
+			OutState.DurationSeconds = static_cast<float>((*Provenance)->GetNumberField(TEXT("duration")));
+		}
+		if ((*Provenance)->HasTypedField<EJson::Number>(TEXT("transition_frames")))
+		{
+			OutState.TransitionFrames = FMath::Clamp(
+				static_cast<int32>((*Provenance)->GetNumberField(TEXT("transition_frames"))), 1, 15);
+		}
+		const TArray<TSharedPtr<FJsonValue>>* SegmentValues = nullptr;
+		if ((*Provenance)->TryGetArrayField(TEXT("segments"), SegmentValues)
+			&& SegmentValues && SegmentValues->Num() <= 16)
+		{
+			for (const TSharedPtr<FJsonValue>& SegmentValue : *SegmentValues)
+			{
+				const TSharedPtr<FJsonObject> SegmentJson = SegmentValue.IsValid()
+					? SegmentValue->AsObject() : nullptr;
+				if (!SegmentJson.IsValid())
+				{
+					continue;
+				}
+				FMocaraPromptSegment Segment;
+				if (SegmentJson->TryGetStringField(TEXT("prompt"), Segment.Prompt)
+					&& SegmentJson->HasTypedField<EJson::Number>(TEXT("duration")))
+				{
+					Segment.DurationSeconds = FMath::Clamp(
+						static_cast<float>(SegmentJson->GetNumberField(TEXT("duration"))), 0.5f, 30.f);
+					OutState.PromptSegments.Add(MoveTemp(Segment));
+				}
+			}
+		}
+		const TSharedPtr<FJsonObject>* ModelBundle = nullptr;
+		if ((*Provenance)->TryGetObjectField(TEXT("model_bundle"), ModelBundle)
+			&& ModelBundle && ModelBundle->IsValid())
+		{
+			(*ModelBundle)->TryGetStringField(TEXT("bundle_sha256"), OutState.ModelBundleSha256);
+		}
 		if ((*Provenance)->HasTypedField<EJson::Number>(TEXT("seed")))
 		{
 			OutState.Seed = static_cast<int32>((*Provenance)->GetNumberField(TEXT("seed")));
@@ -358,6 +421,55 @@ bool FMocaraKimodoClient::ParseJobState(
 		if ((*Provenance)->HasTypedField<EJson::Number>(TEXT("candidate_count")))
 		{
 			OutState.CandidateCount = static_cast<int32>((*Provenance)->GetNumberField(TEXT("candidate_count")));
+		}
+	}
+	return true;
+}
+
+bool FMocaraKimodoClient::ParseHistoryResponse(
+	const FString& Body,
+	TArray<FMocaraJobState>& OutJobs,
+	FString& OutError)
+{
+	OutJobs.Reset();
+	if (Body.Len() > 2 * 1024 * 1024)
+	{
+		OutError = TEXT("History response exceeds the 2 MiB client limit.");
+		return false;
+	}
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		OutError = TEXT("History response is not valid JSON.");
+		return false;
+	}
+	const TArray<TSharedPtr<FJsonValue>>* JobValues = nullptr;
+	if (!Root->TryGetArrayField(TEXT("jobs"), JobValues) || !JobValues || JobValues->Num() > 50)
+	{
+		OutError = TEXT("History response has an invalid jobs list.");
+		return false;
+	}
+	for (const TSharedPtr<FJsonValue>& Value : *JobValues)
+	{
+		const TSharedPtr<FJsonObject> JobJson = Value.IsValid() ? Value->AsObject() : nullptr;
+		if (!JobJson.IsValid())
+		{
+			continue;
+		}
+		FString JobId;
+		if (!JobJson->TryGetStringField(TEXT("job_id"), JobId) || JobId.IsEmpty())
+		{
+			continue;
+		}
+		FString JobBody;
+		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JobBody);
+		FJsonSerializer::Serialize(JobJson.ToSharedRef(), Writer);
+		FMocaraJobState State;
+		FString ParseError;
+		if (ParseJobState(JobBody, JobId, State, ParseError) && State.Status == TEXT("done"))
+		{
+			OutJobs.Add(MoveTemp(State));
 		}
 	}
 	return true;
@@ -404,5 +516,54 @@ void FMocaraKimodoClient::QueryJobAsync(const FString& JobId, FJobQueryComplete 
 	if (!Request->ProcessRequest())
 	{
 		Report(false, FMocaraJobState(), TEXT("Unable to start HTTP request."));
+	}
+}
+
+void FMocaraKimodoClient::QueryHistoryAsync(int32 Limit, FHistoryQueryComplete OnComplete) const
+{
+	const TSharedRef<bool> bReported = MakeShared<bool>(false);
+	auto Report = [bReported, OnComplete](bool bOk, const TArray<FMocaraJobState>& Jobs, const FString& Error)
+	{
+		if (*bReported)
+		{
+			return;
+		}
+		*bReported = true;
+		OnComplete(bOk, Jobs, Error);
+	};
+	if (!IsHttpAvailable())
+	{
+		Report(false, TArray<FMocaraJobState>(), TEXT("HTTP module is unavailable."));
+		return;
+	}
+	const int32 SafeLimit = FMath::Clamp(Limit, 1, 50);
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = MakeRequest(
+		TEXT("GET"), FString::Printf(TEXT("/history?limit=%d"), SafeLimit));
+	Request->SetTimeout(5.0f);
+	Request->OnProcessRequestComplete().BindLambda(
+		[Report](FHttpRequestPtr, FHttpResponsePtr Response, bool bSucceeded)
+		{
+			TArray<FMocaraJobState> Jobs;
+			if (!bSucceeded || !Response.IsValid())
+			{
+				Report(false, Jobs, TEXT("HTTP request failed. Is the Mocara sidecar running?"));
+				return;
+			}
+			if (Response->GetResponseCode() != 200)
+			{
+				Report(false, Jobs, FString::Printf(
+					TEXT("History request failed (%d): %s"),
+					Response->GetResponseCode(),
+					*Response->GetContentAsString()));
+				return;
+			}
+			FString Error;
+			const bool bParsed = FMocaraKimodoClient::ParseHistoryResponse(
+				Response->GetContentAsString(), Jobs, Error);
+			Report(bParsed, Jobs, Error);
+		});
+	if (!Request->ProcessRequest())
+	{
+		Report(false, TArray<FMocaraJobState>(), TEXT("Unable to start HTTP request."));
 	}
 }

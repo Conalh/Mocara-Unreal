@@ -4,6 +4,24 @@
 #include "MocaraTypes.generated.h"
 
 USTRUCT(BlueprintType)
+struct FMocaraPromptSegment
+{
+	GENERATED_BODY()
+
+	FMocaraPromptSegment() = default;
+	FMocaraPromptSegment(const FString& InPrompt, float InDurationSeconds)
+		: Prompt(InPrompt), DurationSeconds(InDurationSeconds)
+	{
+	}
+
+	UPROPERTY(EditAnywhere, Category="Mocara")
+	FString Prompt;
+
+	UPROPERTY(EditAnywhere, Category="Mocara", meta=(ClampMin="0.5", ClampMax="30.0"))
+	float DurationSeconds = 3.0f;
+};
+
+USTRUCT(BlueprintType)
 struct FMocaraGenerateRequest
 {
 	GENERATED_BODY()
@@ -40,6 +58,14 @@ struct FMocaraGenerateRequest
 
 	UPROPERTY(EditAnywhere, Category="Mocara")
 	int32 DiffusionSteps = 100;
+
+	/** Ordered prompt segments. Empty keeps the legacy single-prompt request. */
+	UPROPERTY(EditAnywhere, Category="Mocara")
+	TArray<FMocaraPromptSegment> PromptSegments;
+
+	/** Overlapping frames Kimodo uses to blend adjacent prompt segments. */
+	UPROPERTY(EditAnywhere, Category="Mocara", meta=(ClampMin="1", ClampMax="15"))
+	int32 TransitionFrames = 5;
 };
 
 USTRUCT()
@@ -122,10 +148,16 @@ struct FMocaraJobState
 	int32 NumFrames = 0;
 	int32 CompletedCandidates = 0;
 	FString ProvenancePath;
+	FString CreatedAt;
 	FString Prompt;
+	float DurationSeconds = 3.0f;
 	FString Model;
 	FString ConstraintPreset;
 	FString TextEncoderPrecision;
+	FString Backend;
+	FString ModelBundleSha256;
+	TArray<FMocaraPromptSegment> PromptSegments;
+	int32 TransitionFrames = 5;
 	int32 Seed = 0;
 	bool bHasSeed = false;
 	float TextGuidance = 2.0f;

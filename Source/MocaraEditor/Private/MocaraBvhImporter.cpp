@@ -9,6 +9,7 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "BoneWeights.h"
 #include "Engine/SkeletalMesh.h"
+#include "MaterialDomain.h"
 #include "Materials/Material.h"
 #include "Math/RotationMatrix.h"
 #include "MeshDescription.h"

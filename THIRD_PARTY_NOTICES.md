@@ -29,6 +29,19 @@ No model weights are included in this repository. Setup and runtime may download
 
 Users are responsible for accepting and complying with those terms. Apache-2.0 for Mocara and Kimodo source does not relicense any checkpoint.
 
+## Optional kimodo.cpp experiment
+
+Mocara includes a capability probe and benchmark harness for an explicitly supplied
+[`localai-org/kimodo.cpp`](https://github.com/localai-org/kimodo.cpp) checkout at audited
+revision `f782a7236706749d1ffeabeed140eb14032d19f3`.
+
+- The external C++ source and GGML dependencies are not vendored, cloned, built, or
+  downloaded by this repository.
+- The upstream project's original source is published under Apache-2.0 at that revision.
+- Native GGUF text and motion weights retain their own model terms and are not included.
+- Configuring or benchmarking that checkout does not enable it as Mocara's production
+  backend.
+
 ## Unreal Engine and Epic content
 
 Mocara calls Unreal Engine APIs but does not distribute Unreal Engine source, binaries, sample project assets, mannequins, MetaHumans, or other Epic content. Install and use those components under Epic's applicable agreements.

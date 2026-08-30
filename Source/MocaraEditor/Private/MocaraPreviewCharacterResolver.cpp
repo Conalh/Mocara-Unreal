@@ -1,5 +1,6 @@
 #include "MocaraPreviewCharacterResolver.h"
 
+#include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Blueprint.h"

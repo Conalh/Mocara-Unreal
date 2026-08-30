@@ -30,10 +30,14 @@ Mocara welcomes focused bug fixes, tests, documentation, target profiles, and au
 ## Change rules
 
 - Add a regression test before fixing runtime behavior.
-- Treat reflected Unreal types, project settings, HTTP schemas, environment variables, filenames, and generated asset paths as public contracts.
+- Treat reflected Unreal types, project settings, HTTP schemas, environment variables,
+  model manifests, provenance fields, filenames, and generated asset paths as public
+  contracts.
 - Keep network access on loopback and validate all request and filesystem boundaries.
 - Update `CHANGELOG.md`, public documentation, and third-party notices when behavior, requirements, dependencies, or licensing changes.
 - Separate mechanical refactors from behavior changes.
+- Keep experimental backends non-selectable until the documented build, compatibility,
+  parity, performance, VRAM, and licensing gates pass through a reviewed decision.
 
 ## Commit sign-off
 

@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "bundle_id": "mocara-kimodo-soma-rp-v1.1-fp32",
+  "backend": {
+    "id": "nvidia-kimodo-python",
+    "source_url": "https://github.com/nv-tlabs/kimodo.git",
+    "source_revision": "1aece8c124d73d255ceff5086d983b844c9f4e94",
+    "license": "Apache-2.0"
+  },
+  "repositories": [
+    {
+      "role": "motion",
+      "repo_id": "nvidia/Kimodo-SOMA-RP-v1.1",
+      "revision": "6c9233af1180b8151e3c4703477104af5dce9dd5",
+      "license": "nvidia-open-model-license",
+      "required_files": [
+        {
+          "path": "config.yaml",
+          "size": 675,
+          "sha256": "905664ad05779b0e28c391b85dc81c9de166418bd5f471ef605f75ab746ce391",
+          "kind": "runtime"
+        },
+        {
+          "path": "model.safetensors",
+          "size": 1133185036,
+          "sha256": "ef0a0ca45a6089ab4532dde609785771ae3f38755b4ae6cf314b0213e07cd4a3"
+        },
+        {
+          "path": "stats/motion/body/mean.npy",
+          "size": 3040,
+          "sha256": "d42f35f8bb7ef52fdec66ae29c5cf590bd038f4f1aabd2d560d1d0f78663ed6f",
+          "kind": "runtime"
+        },
+        {
+          "path": "stats/motion/body/std.npy",
+          "size": 3040,
+          "sha256": "965bbad497726ef4e6c46b519827e2cbcb29f974214b25718d20a725b82279ed",
+          "kind": "runtime"
+        },
+        {
+          "path": "stats/motion/global_root/mean.npy",
+          "size": 168,
+          "sha256": "6c110980f9a0386e57a8c186f8eac7f55dc05bade92f44c4b391450ada598da1",
+          "kind": "runtime"
+        },
+        {
+          "path": "stats/motion/global_root/std.npy",
+          "size": 168,
+          "sha256": "fb15aeed7143f5f0754611f0acf5fa5f55d1f6492a49c23e490fc62f7bf11fb0",
+          "kind": "runtime"
+        },
+        {
+          "path": "stats/motion/local_root/mean.npy",
+          "size": 160,
+          "sha256": "4c36e8e33d6d51e6c8206ac796a52b7b3a4da7f0dc49ebdbb4f130178e3e9d31",
+          "kind": "runtime"
+        },
+        {
+          "path": "stats/motion/local_root/std.npy",
+          "size": 160,
+          "sha256": "5f57b41f51ced7832cffa81702f6e04d8694e16475c184baec6c8be0e98c8dba",
+          "kind": "runtime"
+        }
+      ]
+    },
+    {
+      "role": "text-base-adapter",
+      "repo_id": "McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp",
+      "revision": "31474e395ada192e8ed1586db6be79fb3b70c9c0",
+      "license": "MIT",
+      "required_files": [
+        {
+          "path": "adapter_config.json",
+          "size": 794,
+          "sha256": "1d3bbf14142865885ea8d0dbc1fb261adf4f5d14ddbdc939efb47c4913037813",
+          "kind": "runtime"
+        },
+        {
+          "path": "adapter_model.safetensors",
+          "size": 167829552,
+          "sha256": "de9c8736618a13173c6a1623cdef1b75e86c69317f1073ae82cd516ac36a632d"
+        },
+        {
+          "path": "config.json",
+          "size": 781,
+          "sha256": "416c570276487324e49dca7c3d79e212b948d9cb2282fa734b1fa8014de041d1",
+          "kind": "runtime"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 335,
+          "sha256": "849070cae53bd45439e64ce5b1ddd650a66081b1bd47895c5a58939a05055579",
+          "kind": "runtime"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 9085671,
+          "sha256": "52b583ee1699c6ca4468f70885bd5f96dd1f7517292362a67581038afc04f4d8",
+          "kind": "runtime"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 51042,
+          "sha256": "0655c52e874137e4a455228155d982c4ea18419f461a10ceb57054995fec4223",
+          "kind": "runtime"
+        }
+      ]
+    },
+    {
+      "role": "text-supervised-adapter",
+      "repo_id": "McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised",
+      "revision": "baa8ebf04a1c2500e61288e7dad65e8ae42601a7",
+      "license": "MIT",
+      "required_files": [
+        {
+          "path": "adapter_config.json",
+          "size": 794,
+          "sha256": "2a1265e4a7829c16dad38a5175ec8ac41ea1e851654da5044ace2437615a58ba",
+          "kind": "runtime"
+        },
+        {
+          "path": "adapter_model.safetensors",
+          "size": 167829552,
+          "sha256": "53f8f94ebdf396667ba99dd96e78203edae27bbcdbd1cf5f12b611e1d916b225"
+        }
+      ]
+    },
+    {
+      "role": "text-foundation",
+      "repo_id": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+      "license": "llama3",
+      "required_files": [
+        {
+          "path": "config.json",
+          "size": 654,
+          "sha256": "61f3de03a16ca8046b05dc777bce72717022bc8522152eee61a69072272ef54b",
+          "kind": "runtime"
+        },
+        {
+          "path": "model-00001-of-00004.safetensors",
+          "size": 4976698672,
+          "sha256": "d8cf9c4d0dd972e1a2131bfe656235ee98221679711a3beef6d46dadf0f20b5c"
+        },
+        {
+          "path": "model-00002-of-00004.safetensors",
+          "size": 4999802720,
+          "sha256": "8d4782b4a69ef03845159ce1a15e272aadaaf134dc138d68f616098e8531729c"
+        },
+        {
+          "path": "model-00003-of-00004.safetensors",
+          "size": 4915916176,
+          "sha256": "3acdd690e65c24f42a24581b8467af98bd3ca357444580f8012aacd2bd607921"
+        },
+        {
+          "path": "model-00004-of-00004.safetensors",
+          "size": 1168138808,
+          "sha256": "67e9ad31c8c32abf3a55ee7fc7217b3ecb35fd3c74d98a5bd233e0e4d6964f46"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size": 23950,
+          "sha256": "146776fce3f6db1103aa6f249e65ee5544c5923ce6f971b092eee79aa6e5d37b",
+          "kind": "runtime"
+        }
+      ]
+    }
+  ]
+}
