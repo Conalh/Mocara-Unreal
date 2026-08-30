@@ -56,36 +56,23 @@ The model service stays warm between requests, so Mocara can support an authorin
 ## How Mocara works
 
 ```mermaid
-flowchart LR
-    Input["Performance prompt<br/>seed · guidance · duration"]:::input
+flowchart TB
+    Input["1 · Performance prompt<br/>seed · guidance · duration"]:::input
+    Author["2 · Windows / Unreal Editor<br/>Mocara Slate UI + C++ async client"]:::unreal
+    Service["3 · WSL2 / Ubuntu<br/>warm FastAPI sidecar on 127.0.0.1:8765"]:::sidecar
+    Text["4 · Text conditioning<br/>LLM2Vec + Meta Llama 3 8B"]:::model
+    Motion["5 · Motion generation<br/>Kimodo-SOMA-RP-v1.1"]:::model
+    Files[("6 · Interchange artifacts<br/>BVH · NPZ · provenance JSON")]:::artifact
+    Import["7 · Windows / Unreal Editor<br/>SOMA import + target-specific IK retarget"]:::unreal
+    Lab["8 · Animation Lab<br/>preview · pose keys · AutoPose"]:::author
+    Asset[("9 · UAnimSequence<br/>saved project asset")]:::output
 
-    subgraph Unreal["Windows · Unreal Editor 5.8"]
-        direction TB
-        Slate["Mocara Slate tab<br/>prompting + Animation Lab"]:::unreal
-        Client["C++ async client<br/>sidecar lifecycle"]:::unreal
-        Import["SOMA BVH importer"]:::unreal
-        Retarget["IK Rig retargeter<br/>mannequin or MetaHuman body"]:::unreal
-        Lab["Preview · pose keys · AutoPose<br/>constraint regeneration"]:::author
-        Asset[("UAnimSequence<br/>project asset")]:::output
-
-        Slate --> Client
-        Import --> Retarget --> Lab --> Asset
-    end
-
-    subgraph Linux["WSL2 · Ubuntu"]
-        direction TB
-        API["FastAPI sidecar<br/>127.0.0.1:8765"]:::sidecar
-        Text["LLM2Vec + Meta Llama 3 8B<br/>text conditioning"]:::model
-        Motion["Kimodo-SOMA-RP-v1.1<br/>motion generation"]:::model
-        Files[("BVH · NPZ<br/>provenance JSON")]:::artifact
-
-        API --> Text --> Motion --> Files
-    end
-
-    Input --> Slate
-    Client -->|"bounded HTTP job"| API
+    Input --> Author
+    Author -->|"bounded HTTP job"| Service
+    Service --> Text --> Motion --> Files
     Files -->|"host Saved/Kimodo paths"| Import
-    Lab -. "pose constraints + regenerate" .-> Client
+    Import --> Lab --> Asset
+    Lab -. "pose constraints + regenerate" .-> Service
 
     classDef input fill:#182033,stroke:#8a63d2,color:#ffffff,stroke-width:2px
     classDef unreal fill:#111827,stroke:#38bdf8,color:#e5f6ff
