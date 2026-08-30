@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 import sys
 import threading
 
@@ -19,6 +20,7 @@ from mocara_sidecar.server import (
     GeneratedArtifact,
     GenerateRequest,
     KimodoRuntime,
+    PromptSegment,
     _Job,
     _build_prompt_timeline,
     _candidate_seed,
@@ -37,6 +39,85 @@ def test_single_prompt_keeps_punctuation_and_total_duration() -> None:
 
     assert texts == ["runs forward. jumps over a rail."]
     assert frame_counts == [90]
+
+
+def test_multi_prompt_keeps_exact_text_and_per_segment_duration() -> None:
+    request = GenerateRequest(
+        prompt="runs forward.",
+        duration=3.0,
+        segments=[
+            PromptSegment(prompt="runs forward.", duration=1.5),
+            PromptSegment(prompt="vaults a rail, landing low.", duration=2.0),
+            PromptSegment(prompt="recovers into a sprint.", duration=1.0),
+        ],
+        transition_frames=7,
+    )
+
+    texts, frame_counts = _build_prompt_timeline(request, fps=30.0)
+
+    assert texts == [
+        "runs forward.",
+        "vaults a rail, landing low.",
+        "recovers into a sprint.",
+    ]
+    assert frame_counts == [45, 60, 30]
+    assert request.duration == 4.5
+    assert request.transition_frames == 7
+
+
+def test_multi_prompt_provenance_records_the_exact_timeline(tmp_path: Path) -> None:
+    request = GenerateRequest(
+        prompt="runs forward.",
+        seed=44,
+        segments=[
+            {"prompt": "runs forward.", "duration": 1.5},
+            {"prompt": "stops in a low guard.", "duration": 1.0},
+        ],
+        transition_frames=6,
+    )
+    artifact = GeneratedArtifact(
+        0,
+        44,
+        tmp_path / "mocara_job_c01.bvh",
+        tmp_path / "mocara_job_c01.npz",
+    )
+
+    path = _write_provenance(
+        tmp_path / "mocara_job.json",
+        request,
+        [artifact],
+        resolved_model="kimodo-soma-rp-v1.1",
+        text_encoder_precision="float32",
+    )
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["duration"] == 2.5
+    assert saved["segments"] == [
+        {"prompt": "runs forward.", "duration": 1.5},
+        {"prompt": "stops in a low guard.", "duration": 1.0},
+    ]
+    assert saved["transition_frames"] == 6
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {
+            "segments": [
+                {"prompt": "walk", "duration": 20.0},
+                {"prompt": "run", "duration": 11.0},
+            ]
+        },
+        {"segments": [{"prompt": "walk", "duration": 1.0}] * 17},
+        {"segments": [{"prompt": "different first prompt", "duration": 1.0}]},
+        {"transition_frames": 16},
+    ],
+)
+def test_multi_prompt_contract_rejects_ambiguous_or_unbounded_sequences(
+    kwargs: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        GenerateRequest(prompt="walk", **kwargs)
 
 
 def test_generate_request_accepts_reproducible_generation_controls() -> None:
@@ -136,11 +217,121 @@ def test_provenance_file_records_exact_prompt_controls_and_artifacts(tmp_path: P
     assert saved["candidate_count"] == 2
     assert saved["constraint_preset"] == "two-handed-grip"
     assert saved["text_encoder_precision"] == "float32"
+    assert saved["backend"] == "nvidia-kimodo-python"
+    assert saved["model_bundle"] is None
+    assert saved["segments"] == []
+    assert saved["transition_frames"] == 5
     assert saved["in_place"] is True
     assert saved["bvh_standard_tpose"] is True
     assert saved["constraints"] == request.constraints
     assert [artifact["candidate_index"] for artifact in saved["artifacts"]] == [0, 1]
     assert [artifact["seed"] for artifact in saved["artifacts"]] == [7103, 7104]
+
+
+def _persist_history_job(
+    output_dir: Path,
+    job_id: str,
+    prompt: str,
+    created_at: str,
+    seed: int,
+) -> Path:
+    stem = output_dir / f"mocara_{job_id}_c01"
+    bvh_path = stem.with_suffix(".bvh")
+    npz_path = stem.with_suffix(".npz")
+    bvh_path.write_text("HIERARCHY\n", encoding="utf-8")
+    npz_path.write_bytes(b"NPZ")
+    artifact = GeneratedArtifact(0, seed, bvh_path, npz_path)
+    return _write_provenance(
+        output_dir / f"mocara_{job_id}.json",
+        GenerateRequest(prompt=prompt, duration=2.0, seed=seed),
+        [artifact],
+        resolved_model="kimodo-soma-rp-v1.1",
+        text_encoder_precision="float32",
+        job_id=job_id,
+        created_at=created_at,
+        fps=30.0,
+        num_frames=60,
+    )
+
+
+def test_persistent_history_returns_recent_valid_jobs_without_regenerating(tmp_path: Path) -> None:
+    older = _persist_history_job(
+        tmp_path, "111111111111", "walk forward", "2026-08-30T10:00:00Z", 10
+    )
+    newer = _persist_history_job(
+        tmp_path, "222222222222", "vault a rail", "2026-08-30T11:00:00Z", 20
+    )
+    os.utime(older, (1, 1))
+    os.utime(newer, (2, 2))
+    runtime = KimodoRuntime(output_dir=tmp_path)
+    client = TestClient(create_app(runtime=runtime, warmup=False))
+
+    response = client.get("/history?limit=1", headers=HEADERS)
+
+    assert response.status_code == 200
+    jobs = response.json()["jobs"]
+    assert [job["job_id"] for job in jobs] == ["222222222222"]
+    assert jobs[0]["created_at"] == "2026-08-30T11:00:00Z"
+    assert jobs[0]["status"] == "done"
+    assert jobs[0]["provenance"]["prompt"] == "vault a rail"
+    assert jobs[0]["provenance"]["seed"] == 20
+    assert jobs[0]["fps"] == 30.0
+    assert jobs[0]["num_frames"] == 60
+    assert jobs[0]["artifacts"][0]["bvh_path"].endswith("mocara_222222222222_c01.bvh")
+
+
+def test_persistent_history_skips_malformed_and_out_of_directory_artifacts(tmp_path: Path) -> None:
+    (tmp_path / "mocara_brokenbroken.json").write_text("not json", encoding="utf-8")
+    outside_bvh = tmp_path.parent / "outside.bvh"
+    outside_npz = tmp_path.parent / "outside.npz"
+    outside_bvh.write_text("HIERARCHY\n", encoding="utf-8")
+    outside_npz.write_bytes(b"NPZ")
+    _write_provenance(
+        tmp_path / "mocara_333333333333.json",
+        GenerateRequest(prompt="escape", seed=30),
+        [GeneratedArtifact(0, 30, outside_bvh, outside_npz)],
+        resolved_model="kimodo-soma-rp-v1.1",
+        text_encoder_precision="float32",
+        job_id="333333333333",
+        created_at="2026-08-30T12:00:00Z",
+        fps=30.0,
+        num_frames=90,
+    )
+    runtime = KimodoRuntime(output_dir=tmp_path)
+
+    response = TestClient(create_app(runtime=runtime, warmup=False)).get(
+        "/history", headers=HEADERS
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"jobs": []}
+
+
+def test_persistent_history_skips_a_nonnumeric_fps_without_failing_request(
+    tmp_path: Path,
+) -> None:
+    provenance_path = _persist_history_job(
+        tmp_path, "444444444444", "walk", "2026-08-30T13:00:00Z", 40
+    )
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["fps"] = {"not": "a number"}
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+
+    response = TestClient(
+        create_app(runtime=KimodoRuntime(output_dir=tmp_path), warmup=False)
+    ).get("/history", headers=HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {"jobs": []}
+
+
+def test_persistent_history_limit_is_bounded(tmp_path: Path) -> None:
+    runtime = KimodoRuntime(output_dir=tmp_path)
+    response = TestClient(create_app(runtime=runtime, warmup=False)).get(
+        "/history?limit=51", headers=HEADERS
+    )
+
+    assert response.status_code == 422
 
 
 def test_completed_job_status_keeps_legacy_paths_and_lists_all_candidates(tmp_path: Path) -> None:
@@ -287,7 +478,12 @@ def _idle_app() -> TestClient:
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("post", "/generate"), ("get", "/jobs/deadbeef"), ("post", "/shutdown")],
+    [
+        ("post", "/generate"),
+        ("get", "/jobs/deadbeef"),
+        ("get", "/history"),
+        ("post", "/shutdown"),
+    ],
 )
 def test_mutating_endpoints_refuse_requests_without_the_client_header(method: str, path: str) -> None:
     """A browser cannot set a custom header cross-origin without a preflight this app
@@ -303,6 +499,8 @@ def test_health_stays_open_because_it_is_only_a_liveness_probe() -> None:
 
     assert response.status_code == 200
     assert response.json()["text_encoder_precision"] == "float32"
+    assert response.json()["backend"] == "nvidia-kimodo-python"
+    assert response.json()["model_integrity"] == "pending"
 
 
 def test_generate_refuses_a_model_the_warm_sidecar_is_not_serving() -> None:

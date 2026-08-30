@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/Conalh/Mocara-Unreal/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Conalh/Mocara-Unreal/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Beta 0.2.0" src="https://img.shields.io/badge/status-beta%200.2.0-8A63D2">
+  <img alt="Beta 0.3.0" src="https://img.shields.io/badge/status-beta%200.3.0-8A63D2">
   <img alt="Unreal Engine 5.8" src="https://img.shields.io/badge/Unreal%20Engine-5.8-0E1128?logo=unrealengine&logoColor=white">
   <img alt="Windows and WSL2" src="https://img.shields.io/badge/platform-Windows%20%2B%20WSL2-0078D4?logo=windows11&logoColor=white">
   <img alt="NVIDIA CUDA" src="https://img.shields.io/badge/compute-NVIDIA%20CUDA-76B900?logo=nvidia&logoColor=white">
@@ -30,15 +30,15 @@
 Mocara is a beta Unreal Engine editor plugin that turns a performance prompt into skeletal motion, imports the result, retargets it onto a UE5 mannequin or MetaHuman body, and gives the animator a focused in-editor lab for exact pose corrections.
 
 > [!IMPORTANT]
-> Mocara 0.2.0 currently supports **Windows 10/11 + WSL2 Ubuntu + NVIDIA GPUs**. This repository contains the plugin source—not Kimodo or Llama model weights, downloaded checkpoints, or Epic content.
+> Mocara 0.3.0 currently supports **Windows 10/11 + WSL2 Ubuntu + NVIDIA GPUs**. This repository contains the plugin source—not Kimodo or Llama model weights, downloaded checkpoints, or Epic content.
 
 ## What you can do
 
 | Generate and compare | Retarget and preview |
 | --- | --- |
-| Create body motion from plain-language performance direction with a reproducible seed, independent guidance controls, and one to four sequential candidates. | Import SOMA BVH motion, build or reuse target-specific IK assets, and preview it on UE5 mannequin or assembled MetaHuman bodies. |
+| Create body motion from one or more timed prompt beats with a reproducible seed, independent guidance controls, and one to four sequential candidates. | Import SOMA BVH motion, build or reuse target-specific IK assets, and preview it on UE5 mannequin or assembled MetaHuman bodies. |
 | **Direct and refine** | **Reproduce and inspect** |
-| Key exact bones, shape Ease In / Hold / Ease Out intervals, apply local AutoPose, or send pose constraints back through Kimodo. | Keep prompt, model, seed, guidance, candidate, precision, constraints, and artifact paths together in provenance JSON. |
+| Key exact bones, shape Ease In / Hold / Ease Out intervals, apply local AutoPose, or send pose constraints back through Kimodo. | Verify exact model inputs, preserve the complete generation in provenance, and reload prior results from persistent history. |
 
 The model service stays warm between requests, so Mocara can support an authoring loop rather than treating every generation as a disconnected batch job.
 
@@ -57,22 +57,31 @@ The model service stays warm between requests, so Mocara can support an authorin
 
 ```mermaid
 flowchart TB
-    Input["1 · Performance prompt<br/>seed · guidance · duration"]:::input
+    Input["1 · Performance direction<br/>1–16 timed prompt beats · seed · guidance"]:::input
     Author["2 · Windows / Unreal Editor<br/>Mocara Slate UI + C++ async client"]:::unreal
     Service["3 · WSL2 / Ubuntu<br/>warm FastAPI sidecar on 127.0.0.1:8765"]:::sidecar
+    Manifest[("Pinned runtime identity<br/>source revisions · sizes · SHA-256")]:::evidence
     Text["4 · Text conditioning<br/>LLM2Vec + Meta Llama 3 8B"]:::model
     Motion["5 · Motion generation<br/>Kimodo-SOMA-RP-v1.1"]:::model
-    Files[("6 · Interchange artifacts<br/>BVH · NPZ · provenance JSON")]:::artifact
-    Import["7 · Windows / Unreal Editor<br/>SOMA import + target-specific IK retarget"]:::unreal
-    Lab["8 · Animation Lab<br/>preview · pose keys · AutoPose"]:::author
-    Asset[("9 · UAnimSequence<br/>saved project asset")]:::output
+    Files[("6 · Durable generation record<br/>BVH · NPZ · provenance JSON")]:::artifact
+    History["7 · Persistent history<br/>restore controls · load without regenerating"]:::author
+    Import["8 · Windows / Unreal Editor<br/>SOMA import + target-specific IK retarget"]:::unreal
+    Lab["9 · Animation Lab<br/>preview · pose keys · AutoPose"]:::author
+    Asset[("10 · UAnimSequence<br/>saved project asset")]:::output
+    Native["kimodo.cpp experiment<br/>CPU/Vulkan · raw rotations"]:::experiment
+    Gates["Promotion gates<br/>Windows build · SOMA77 · constraints<br/>parity · latency · VRAM · licensing"]:::gate
 
     Input --> Author
     Author -->|"bounded HTTP job"| Service
+    Manifest -->|"verify before import"| Service
     Service --> Text --> Motion --> Files
+    Files --> History
+    History -->|"Load Saved"| Author
     Files -->|"host Saved/Kimodo paths"| Import
     Import --> Lab --> Asset
     Lab -. "pose constraints + regenerate" .-> Service
+    Native -. "explicit probe + benchmark only" .-> Gates
+    Gates -. "all must pass before promotion" .-> Service
 
     classDef input fill:#182033,stroke:#8a63d2,color:#ffffff,stroke-width:2px
     classDef unreal fill:#111827,stroke:#38bdf8,color:#e5f6ff
@@ -81,6 +90,9 @@ flowchart TB
     classDef artifact fill:#2b2112,stroke:#f59e0b,color:#fff7e6
     classDef author fill:#192337,stroke:#60a5fa,color:#eff6ff,stroke-width:2px
     classDef output fill:#2a1d18,stroke:#fb923c,color:#fff4ed,stroke-width:2px
+    classDef evidence fill:#172554,stroke:#fbbf24,color:#fff7d6
+    classDef experiment fill:#291a2d,stroke:#c084fc,color:#fbf1ff,stroke-dasharray: 5 5
+    classDef gate fill:#321b1b,stroke:#f87171,color:#fff1f2,stroke-dasharray: 5 5
 ```
 
 The language model is **not** the animation generator:
@@ -89,6 +101,16 @@ The language model is **not** the animation generator:
 2. **Kimodo-SOMA-RP-v1.1** uses that conditioning, the seed, guidance, and optional pose constraints to synthesize skeletal motion.
 3. **Mocara** owns the Windows/WSL bridge, import, IK retargeting, preview, local editing, constraint feedback, and Unreal asset creation.
 
+Before Kimodo loads, Mocara resolves exact repository revisions and verifies every
+declared runtime configuration and weight file against the packaged manifest. The
+bundle digest then travels with each generation's provenance. Completed records remain
+available after either process restarts; loading one restores its prompt timeline and
+imports the chosen artifact without another model call.
+
+The dashed `kimodo.cpp` branch is deliberately not a selectable backend. It exposes a
+measurable native experiment while the production Python/CUDA path retains constraints,
+SOMA 77-joint presentation output, BVH generation, and the proven editor contract.
+
 The generation path is local to one workstation. Setup downloads the required code and gated model assets from their original providers; after they are installed, prompts and generated motion travel only between Unreal and the loopback WSL sidecar.
 
 The complete component boundaries, data contracts, extension seams, and verification layers live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -96,15 +118,15 @@ The complete component boundaries, data contracts, extension seams, and verifica
 ## The authoring loop
 
 ```text
-Generate broad motion
+Author one or more timed prompt beats
+        ↓
+Generate broad motion and compare candidates
         ↓
 Inspect it on the target character
         ↓
-Key exact body corrections
-        ↓
-Apply locally ───────── or ───────── Regenerate with constraints
+Load a saved generation ─── or ─── Key exact body corrections
         ↓                                      ↓
-Compare candidates and provenance
+Reuse the artifact              Apply locally or regenerate
         ↓
 Save the chosen UAnimSequence
 ```
@@ -114,6 +136,8 @@ This split keeps creative iteration fast:
 - **Local AutoPose** deterministically bakes keyed corrections onto the loaded clip without another model request.
 - **Constraint regeneration** turns keyed body, root, or end-effector targets into a new Kimodo request when the motion itself should adapt.
 - **Candidate comparison** derives deterministic variation seeds and generates sequentially, keeping peak VRAM at the proven single-motion level.
+- **Prompt sequences** give every motion beat its own text and duration, with an explicit transition width.
+- **Persistent history** restores completed generation controls and artifacts without rerunning the model.
 - **Two-Hand Grip** describes a relationship between both wrists while preserving the selected clip's broad motion.
 
 ## Quick start
@@ -169,9 +193,9 @@ The plugin forwards the resolved token to WSL for setup and runtime access. Neve
 ### Generate your first clip
 
 1. Open **Window → Mocara**.
-2. Enter a visible body action, duration, and generation controls.
+2. Enter a visible body action and generation controls. Use **+ Segment** when the motion has distinct timed beats.
 3. Press **Generate**. The first request in a session may wait while the models load.
-4. Select a candidate and press **Load**.
+4. Select a candidate and press **Load**, or use **Refresh History** and **Load Saved** to reopen a prior result.
 5. Preview, key corrections, apply AutoPose or regenerate with constraints, then save the chosen animation.
 
 Generated interchange files default to the host project's `Saved/Kimodo` directory. Unreal assets default to `/Game/Mocara/Generated` and `/Game/Mocara/Retarget`.
@@ -201,6 +225,7 @@ Animation Lab is the in-editor refinement surface:
 - Drag a complete interval, resize its three regions, nudge the selected key, or duplicate it.
 - Apply local AutoPose to the current clip or regenerate from bounded Kimodo constraints.
 - Load one of up to four deterministic candidates without importing every alternative.
+- Add timed prompt segments, tune their transition width, and reopen persisted generations.
 - Preview on an assembled MetaHuman Blueprint or a UE5 mannequin target.
 - Export the newest clip to FBX when the downstream workflow needs it.
 
@@ -221,11 +246,15 @@ The main controls live under **Project Settings → Plugins → Mocara**.
 | `FootPlantingStrength` | `1.0` | Main retarget foot-stability control. |
 | `bAutoSaveGenerated` | on | Saves generated Unreal assets automatically. |
 
-Runtime scripts also accept `MOCARA_ROOT`, `MOCARA_OUTPUT_DIR`, `MOCARA_PORT`, `MOCARA_PIDFILE`, `MOCARA_MODEL`, `TEXT_ENCODER_FP32`, `VENV`, `KIMODO_SRC`, `KIMODO_REF`, `KIMODO_URL`, and `UV_VERSION`.
+Runtime scripts also accept `MOCARA_ROOT`, `MOCARA_OUTPUT_DIR`, `MOCARA_PORT`, `MOCARA_PIDFILE`, `MOCARA_MODEL`, `MOCARA_MODEL_MANIFEST`, `TEXT_ENCODER_FP32`, `VENV`, `KIMODO_SRC`, `KIMODO_REF`, `KIMODO_URL`, and `UV_VERSION`.
 
 ### Local API boundary
 
 The sidecar binds only to `127.0.0.1`. Every endpoint except `/health` requires an `X-Mocara-Client` header. That header blocks ordinary cross-origin webpages from driving the service; it is **not** authentication against other local processes.
+
+The guarded contract includes `POST /generate`, `GET /jobs/{id}`, `GET /history`,
+`GET /backends`, and `POST /shutdown`. `/backends` returns capabilities and promotion
+blockers without returning configured checkout, executable, weight, or evidence paths.
 
 Do not expose the sidecar port to a LAN or the internet. See [`SECURITY.md`](SECURITY.md) for the intended trust boundary.
 
@@ -250,13 +279,31 @@ Package the distributable plugin with Unreal Automation Tool:
 RunUAT.bat BuildPlugin -Plugin=<Path>\Mocara.uplugin -Package=<OutputDirectory> -TargetPlatforms=Win64
 ```
 
+### Native backend experiment
+
+`Scripts/benchmark_kimodo_cpp.py` can measure an explicitly supplied native build
+without cloning code, downloading weights, building a checkout, or enabling a backend:
+
+```powershell
+py -3.11 Scripts/benchmark_kimodo_cpp.py `
+  --source <CleanKimodoCppCheckout> `
+  --executable <KmdGenerateExecutable> `
+  --motion-model <SomaMotionGguf> `
+  --text-bundle <Llm2VecGgufBundle> `
+  --report <NewEvidenceJson>
+```
+
+The checkout must match the audited revision and have no tracked or submodule changes.
+Reports contain content hashes and measurements but no local paths. A successful run is
+still not promotion; see the [native experiment decision](docs/decisions/0003-native-backend-experiment.md).
+
 ### Repository map
 
 ```text
 Mocara.uplugin                 plugin descriptor
 Config/FilterPlugin.ini       BuildPlugin packaging boundary
-Resources/                    pinned SOMA reference skeleton
-Scripts/                      WSL doctor, setup, run, and stop tools
+Resources/                    pinned SOMA reference skeleton and model manifest
+Scripts/                      WSL lifecycle tools and the explicit native benchmark
 Sidecar/                      installable FastAPI service
 Source/MocaraEditor/          editor-only Unreal C++ module and tests
 Tests/                        portable Python and script contract tests
@@ -270,6 +317,8 @@ docs/                         architecture, design decision, and build brief
 | [Contributing](CONTRIBUTING.md) | Scope, test layers, packaging proof, and pull-request expectations. |
 | [Security](SECURITY.md) | Loopback trust boundary and vulnerability reporting. |
 | [Public plugin boundary ADR](docs/decisions/0001-public-plugin-boundary.md) | Why the public repository is a standalone plugin rather than a host project export. |
+| [Verifiable authoring ADR](docs/decisions/0002-verifiable-motion-authoring.md) | Why model identity, provenance, history, and prompt sequences form one durable contract. |
+| [Native experiment ADR](docs/decisions/0003-native-backend-experiment.md) | What was useful in `kimodo.cpp`, what is still missing, and the exact promotion gates. |
 | [Changelog](CHANGELOG.md) | Public release history and known acceptance limits. |
 
 ## Limitations
@@ -280,6 +329,9 @@ docs/                         architecture, design decision, and build brief
 - A single default pidfile means two projects should not share one sidecar instance.
 - The loopback service trusts other local processes.
 - Pose-editing keys are session state until baked or regenerated.
+- The `kimodo.cpp` path is a benchmarkable experiment, not a backend choice. Its current
+  audited revision does not pass the Windows build, SOMA 77-joint, general-constraint,
+  parity, performance, VRAM, and licensing gates.
 - MetaHuman support currently generates body animation, not facial animation.
 - Built-in target profiles cover UE5 mannequin and MetaHuman body conventions. Other skeletons need a validated target profile and IK chain mapping.
 - Every assembled MetaHuman body and clothing combination still needs a human viewport acceptance pass.

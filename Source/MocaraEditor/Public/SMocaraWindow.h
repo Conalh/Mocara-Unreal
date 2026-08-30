@@ -4,11 +4,13 @@
 #include "EditorUndoClient.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/SCompoundWidget.h"
+#include "Widgets/Input/SComboBox.h"
 #include "MocaraTypes.h"
 #include "MocaraKimodoClient.h"
 #include "Dom/JsonValue.h"
 
 class SEditableTextBox;
+class SVerticalBox;
 class SMocaraViewport;
 class SButton;
 class UAnimSequence;
@@ -42,10 +44,15 @@ public:
 
 private:
 	FReply OnGenerate();
+	FReply OnAddPromptSegment();
+	FReply OnUseSinglePrompt();
+	FReply OnRemovePromptSegment(int32 SegmentIndex);
 	FReply OnApplyAutoPose();
 	FReply OnRegenerateWithConstraints();
 	FReply OnRegenerateWithTwoHandGrip();
 	FReply OnLoadCandidate();
+	FReply OnRefreshHistory();
+	FReply OnLoadHistory();
 	FReply OnKeyPose();
 	FReply OnExportFbx();
 	FReply OnDeleteSelectedKey();
@@ -57,8 +64,12 @@ private:
 	EActiveTimerReturnType OnPoll(double CurrentTime, float DeltaTime);
 	/** Apply one async /jobs reply. Called on the game thread; may be stale, see impl. */
 	void HandleJobState(bool bOk, const FMocaraJobState& State, const FString& Error);
+	void HandleHistory(bool bOk, const TArray<FMocaraJobState>& Jobs, const FString& Error);
 	EActiveTimerReturnType OnPlaybackTick(double CurrentTime, float DeltaTime);
 	void SetStatus(const FString& Text);
+	void RebuildPromptSegmentRows();
+	void UpdatePromptTimelineFrames();
+	float PromptTimelineDuration() const;
 	FText PoseSummaryText() const;
 	FReply SubmitGenerate(const TArray<TSharedPtr<FJsonValue>>* Constraints);
 	bool ImportAndRetarget(const FMocaraJobState& Job);
@@ -110,6 +121,7 @@ private:
 	bool bSubmitInFlight = false;
 	bool bImportPending = false;
 	bool bWaitingForSidecar = false;
+	bool bHistoryQueryInFlight = false;
 	bool bPlaying = false;
 	bool bViewportTransactionActive = false;
 	bool bPoseControlTransactionActive = false;
@@ -120,6 +132,10 @@ private:
 	TWeakObjectPtr<UAnimSequence> LastTargetSequence;
 	TWeakObjectPtr<USkeletalMesh> LastSomaMesh;
 	TSharedPtr<SEditableTextBox> PromptBox;
+	TSharedPtr<SVerticalBox> PromptSegmentsBox;
+	TArray<TSharedPtr<FMocaraJobState>> HistoryItems;
+	TSharedPtr<FMocaraJobState> SelectedHistoryItem;
+	TSharedPtr<SComboBox<TSharedPtr<FMocaraJobState>>> HistoryCombo;
 public:
 	TSharedPtr<SMocaraViewport> Viewport;
 private:

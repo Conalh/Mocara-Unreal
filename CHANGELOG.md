@@ -2,6 +2,26 @@
 
 All notable changes to Mocara are recorded here.
 
+## 0.3.0 - 2026-08-30
+
+- Added a packaged model manifest with immutable repository revisions, runtime file
+  sizes and SHA-256 hashes, cached re-verification, and a bundle digest in provenance.
+- Added persistent generation history that restores settings and imports prior artifacts
+  without regenerating, with bounded and path-contained provenance loading.
+- Added up to 16 timed prompt segments with explicit transition frames across the Slate,
+  C++ HTTP, sidecar, model-call, history, and provenance contracts.
+- Added a guarded, path-free backend capability catalog.
+- Added a bounded `kimodo.cpp` probe and benchmark harness while retaining the verified
+  NVIDIA Python/CUDA backend as the only production path.
+- Added architecture decisions for verifiable authoring and the native promotion gate.
+
+### Native experiment status
+
+The audited `kimodo.cpp` revision remains blocked from production. Its clean Windows
+configuration reaches MSVC compilation but fails upstream portability checks, and it
+does not yet preserve Mocara's general constraints, SOMA 77-joint presentation output,
+BVH contract, parity evidence, or accepted latency/VRAM/licensing gates.
+
 ## 0.2.0 - 2026-08-24
 
 First public source release.

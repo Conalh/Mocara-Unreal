@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Dom/JsonObject.h"
 #include "Interfaces/IHttpRequest.h"
 #include "MocaraTypes.h"
 
@@ -13,6 +14,7 @@ public:
 	 */
 	using FJobQueryComplete = TFunction<void(bool /*bOk*/, const FMocaraJobState& /*State*/, const FString& /*Error*/)>;
 	using FGenerateComplete = TFunction<void(bool /*bOk*/, const FString& /*JobId*/, const FString& /*Error*/)>;
+	using FHistoryQueryComplete = TFunction<void(bool /*bOk*/, const TArray<FMocaraJobState>& /*Jobs*/, const FString& /*Error*/)>;
 
 	/**
 	 * Build a request aimed at Path with the client header the sidecar requires.
@@ -32,6 +34,12 @@ public:
 		FMocaraJobState& OutState,
 		FString& OutError);
 
+	/** Decode the bounded /history response into import-ready completed jobs. */
+	static bool ParseHistoryResponse(
+		const FString& Body,
+		TArray<FMocaraJobState>& OutJobs,
+		FString& OutError);
+
 	/**
 	 * Blocking, and deliberately so: this runs on the editor teardown path where there is
 	 * no later tick to deliver a callback. It is the only blocking call left in this
@@ -49,6 +57,9 @@ public:
 	 * this one. Callers must tolerate a response arriving after the job was abandoned.
 	 */
 	void QueryJobAsync(const FString& JobId, FJobQueryComplete OnComplete) const;
+
+	/** List recent persisted generations without blocking or regenerating them. */
+	void QueryHistoryAsync(int32 Limit, FHistoryQueryComplete OnComplete) const;
 
 	FString MakeUrl(const FString& Path) const;
 

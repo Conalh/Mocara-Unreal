@@ -18,6 +18,9 @@ def test_public_repository_has_required_community_files() -> None:
         "CHANGELOG.md",
         "docs/ARCHITECTURE.md",
         "docs/BUILD_YOUR_OWN.md",
+        "docs/decisions/0001-public-plugin-boundary.md",
+        "docs/decisions/0002-verifiable-motion-authoring.md",
+        "docs/decisions/0003-native-backend-experiment.md",
     }
 
     missing = sorted(path for path in required if not (REPO_ROOT / path).is_file())
@@ -58,10 +61,32 @@ def test_soma_reference_pose_matches_the_attributed_kimodo_resource() -> None:
     )
 
 
+def test_packaged_model_manifest_uses_only_immutable_content_identities() -> None:
+    manifest = json.loads(
+        (REPO_ROOT / "Resources" / "model-manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest["schema_version"] == 1
+    assert re.fullmatch(r"[0-9a-f]{40}", manifest["backend"]["source_revision"])
+    assert {repository["role"] for repository in manifest["repositories"]} == {
+        "motion",
+        "text-base-adapter",
+        "text-supervised-adapter",
+        "text-foundation",
+    }
+    for repository in manifest["repositories"]:
+        assert re.fullmatch(r"[0-9a-f]{40}", repository["revision"])
+        assert repository["required_files"]
+        for required in repository["required_files"]:
+            assert required["size"] > 0
+            assert re.fullmatch(r"[0-9a-f]{64}", required["sha256"])
+            assert not Path(required["path"]).is_absolute()
+
+
 def test_plugin_descriptor_preserves_the_beta_release_identity() -> None:
     descriptor = json.loads((REPO_ROOT / "Mocara.uplugin").read_text(encoding="utf-8"))
 
-    assert descriptor["VersionName"] == "0.2.0"
+    assert descriptor["VersionName"] == "0.3.0"
     assert descriptor["IsBetaVersion"] is True
     assert descriptor["Modules"] == [
         {"Name": "MocaraEditor", "Type": "Editor", "LoadingPhase": "Default"}
